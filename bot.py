@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
+import time
 from pathlib import Path
 from struct import unpack
 from typing import Any
@@ -24,7 +26,15 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 )
-from pyrogram.errors import UserNotParticipant
+from pyrogram.errors import UserNotParticipant, FloodWait
+
+# ─── Logging setup ───────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("dark_tunnel_bot")
 
 # ==================== BOT CONFIGURATION ====================
 API_ID   = 34808897
@@ -298,7 +308,7 @@ async def check_user_joined(client: Client, user_id: int) -> bool:
     except UserNotParticipant:
         return False
     except Exception as e:
-        print(f"Membership check error: {e}")
+        log.warning("Membership check error: %s", e)
         return True   # allow on technical error
 
 def get_force_join_markup() -> InlineKeyboardMarkup:
@@ -320,43 +330,53 @@ bot = Client(
 # ─── /start handler ──────────────────────────────────────────
 @bot.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
-    if not await check_user_joined(client, message.from_user.id):
+    try:
+        if not message.from_user:
+            return
+        if not await check_user_joined(client, message.from_user.id):
+            await message.reply_text(
+                "╭──────────────────────────────╮\n"
+                "│      ⚠️ ACCESS DENIED ⚠️     │\n"
+                "├──────────────────────────────┤\n"
+                "│ বোটটি ব্যবহার করতে হলে আপনাকে │\n"
+                "│ অবশ্যই আমাদের চ্যানেলে জয়েন │\n"
+                "│ করতে হবে।                    │\n"
+                "├──────────────────────────────┤\n"
+                "│ নিচের বাটনে ক্লিক করে জয়েন   │\n"
+                "│ করুন এবং Check Join 🟢     │\n"
+                "│ বাটনে চাপুন।                 │\n"
+                "╰──────────────────────────────╯",
+                reply_markup=get_force_join_markup(),
+            )
+            return
+
         await message.reply_text(
             "╭──────────────────────────────╮\n"
-            "│      ⚠️ ACCESS DENIED ⚠️     │\n"
+            "│  👋 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 𝐃𝐀𝐑𝐊 𝐓𝐔𝐍𝐍𝐄𝐋  │\n"
+            "│   💎 𝐂𝐎𝐍𝐅𝐈𝐆 𝐃𝐄𝐂𝐑𝐘𝐏𝐓𝐎𝐑 𝐁𝐎𝐓 💎 │\n"
             "├──────────────────────────────┤\n"
-            "│ বোটটি ব্যবহার করতে হলে আপনাকে │\n"
-            "│ অবশ্যই আমাদের চ্যানেলে জয়েন │\n"
-            "│ করতে হবে।                    │\n"
+            "│  ⚡ 𝐒𝐭𝐚𝐭𝐮𝐬    : Unlocking Active│\n"
+            "│  🚀 𝐒𝐩𝐞𝐞𝐝    : Ultra Fast      │\n"
+            "│  👨‍💻 𝐃𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫 : @Rahmatullah_1     │\n"
             "├──────────────────────────────┤\n"
-            "│ নিচের বাটনে ক্লিক করে জয়েন   │\n"
-            "│ করুন এবং Check Join 🟢     │\n"
-            "│ বাটনে চাপুন।                 │\n"
+            "│  📂 এখন যেকোনো `dark` কনফিগ │\n"
+            "│  ফাইল পাঠান, মুহূর্তেই আনলক   │\n"
+            "│  হয়ে যাবে।😁                   │\n"
             "╰──────────────────────────────╯",
-            reply_markup=get_force_join_markup(),
+            parse_mode=enums.ParseMode.MARKDOWN,
         )
-        return
-
-    await message.reply_text(
-        "╭──────────────────────────────╮\n"
-        "│  👋 𝐖𝐄𝐋𝐂𝐎𝐌𝐄 𝐓𝐎 𝐃𝐀𝐑𝐊 𝐓𝐔𝐍𝐍𝐄𝐋  │\n"
-        "│   💎 𝐂𝐎𝐍𝐅𝐈𝐆 𝐃𝐄𝐂𝐑𝐘𝐏𝐓𝐎𝐑 𝐁𝐎𝐓 💎 │\n"
-        "├──────────────────────────────┤\n"
-        "│  ⚡ 𝐒𝐭𝐚𝐭𝐮𝐬    : Unlocking Active│\n"
-        "│  🚀 𝐒𝐩𝐞𝐞𝐝    : Ultra Fast      │\n"
-        "│  👨‍💻 𝐃𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫 : @Rahmatullah_1     │\n"
-        "├──────────────────────────────┤\n"
-        "│  📂 এখন যেকোনো `dark` কনফিগ │\n"
-        "│  ফাইল পাঠান, মুহূর্তেই আনলক   │\n"
-        "│  হয়ে যাবে।😁                   │\n"
-        "╰──────────────────────────────╯",
-        parse_mode=enums.ParseMode.MARKDOWN,
-    )
+    except FloodWait as e:
+        log.warning("/start FloodWait %ds for user %s", e.value, getattr(message.from_user, "id", "?"))
+        time.sleep(e.value)
+    except Exception as e:
+        log.error("/start handler error: %s", e, exc_info=True)
 
 
 # ─── File handler ─────────────────────────────────────────────
 @bot.on_message(filters.document)
 async def file_handler(client: Client, message: Message):
+    if not message.from_user:
+        return
     filename = (message.document.file_name or "").lower()
     if ".dark" not in filename:
         return
@@ -412,25 +432,57 @@ async def file_handler(client: Client, message: Message):
 # ─── Check Join callback ──────────────────────────────────────
 @bot.on_callback_query(filters.regex("check_join"))
 async def callback_check_join(client: Client, callback_query: CallbackQuery):
-    if await check_user_joined(client, callback_query.from_user.id):
-        await callback_query.answer("Success! You have joined. 🎉", show_alert=True)
-        await callback_query.message.edit_text(
-            "╭──────────────────────────────╮\n"
-            "│     ✅ JOINED SUCCESS 🎉     │\n"
-            "├──────────────────────────────┤\n"
-            "│ ধন্যবাদ আমাদের সাথে থাকার জন্য│\n"
-            "│                              │\n"
-            "│ এখন আপনার কাঙ্ক্ষিত `.dark`   │\n"
-            "│ ফাইলটি বোটে সেন্ড করুন।       │\n"
-            "╰──────────────────────────────╯"
-        )
-    else:
-        await callback_query.answer(
-            "❌ আপনি এখনো জয়েন করেননি! দয়া করে জয়েন করুন।",
-            show_alert=True,
-        )
+    try:
+        if not callback_query.from_user:
+            return
+        if await check_user_joined(client, callback_query.from_user.id):
+            await callback_query.answer("Success! You have joined. 🎉", show_alert=True)
+            await callback_query.message.edit_text(
+                "╭──────────────────────────────╮\n"
+                "│     ✅ JOINED SUCCESS 🎉     │\n"
+                "├──────────────────────────────┤\n"
+                "│ ধন্যবাদ আমাদের সাথে থাকার জন্য│\n"
+                "│                              │\n"
+                "│ এখন আপনার কাঙ্ক্ষিত `.dark`   │\n"
+                "│ ফাইলটি বোটে সেন্ড করুন।       │\n"
+                "╰──────────────────────────────╯"
+            )
+        else:
+            await callback_query.answer(
+                "❌ আপনি এখনো জয়েন করেননি! দয়া করে জয়েন করুন।",
+                show_alert=True,
+            )
+    except FloodWait as e:
+        log.warning("check_join FloodWait %ds", e.value)
+        time.sleep(e.value)
+    except Exception as e:
+        log.error("check_join callback error: %s", e, exc_info=True)
 
 
 if __name__ == "__main__":
-    print("🤖 Dark Tunnel Decryptor Bot starting...")
-    bot.run()
+    log.info("🤖 Dark Tunnel Decryptor Bot starting...")
+    backoff = 5  # seconds between restart attempts
+    while True:
+        crashed = False
+        try:
+            bot.run()
+            # bot.run() returned cleanly (graceful stop) — do not restart
+            log.info("Bot stopped cleanly. Exiting.")
+            break
+        except FloodWait as e:
+            wait = e.value + 5
+            log.warning("FloodWait: sleeping %ds before restart", wait)
+            time.sleep(wait)
+            backoff = 5
+            continue
+        except KeyboardInterrupt:
+            log.info("Shutdown requested — exiting.")
+            break
+        except Exception as e:
+            log.error("Bot crashed: %s — restarting in %ds", e, backoff, exc_info=True)
+            crashed = True
+        if not crashed:
+            break
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 120)  # cap at 2 minutes
+        log.info("Restarting bot… (next backoff: %ds)", backoff)
