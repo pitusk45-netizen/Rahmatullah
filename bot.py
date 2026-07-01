@@ -11,7 +11,10 @@ import json
 import logging
 import os
 import re
+import threading
 import time
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from struct import unpack
 from typing import Any
@@ -37,9 +40,11 @@ logging.basicConfig(
 log = logging.getLogger("dark_tunnel_bot")
 
 # ==================== BOT CONFIGURATION ====================
-API_ID   = 34808897
-API_HASH = "2ab743fe8f005ebea00e9d8c269a1ad3"
-BOT_TOKEN = "8949050319:AAHZiBoZrTw3QvkXDjq6QSjhj52JTtbSPRk"
+# All credentials are read from environment variables only.
+# Set these in Replit Secrets or Render dashboard — never hardcode them.
+API_ID    = int(os.environ["API_ID"])
+API_HASH  = os.environ["API_HASH"]
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 CHANNEL_USERNAME = "minarulsensi"
 CHANNEL_URL      = "https://t.me/minarulsensi"
@@ -318,6 +323,45 @@ def get_force_join_markup() -> InlineKeyboardMarkup:
     ])
 
 
+# ─── Self-pinger (keeps Replit awake without UptimeRobot) ────
+# Runs in a background thread, pings the project's own public URL
+# every 4 minutes so Replit never idles out the container.
+def _self_pinger() -> None:
+    domain = os.environ.get("REPLIT_DEV_DOMAIN")
+    if not domain:
+        return
+    url = f"https://{domain}/api/healthz"
+    log.info("Self-pinger started → %s (first ping in 60s, then every 2 min)", url)
+    time.sleep(60)               # first ping after 1 minute
+    while True:
+        try:
+            urllib.request.urlopen(url, timeout=10)
+            log.info("Self-ping OK ✓")
+        except Exception as e:
+            log.warning("Self-ping failed: %s", e)
+        time.sleep(120)          # ping every 2 minutes — well within Replit's ~5 min timeout
+
+
+# ─── Health-check HTTP server (required by Render.com) ───────
+# Only started when the PORT env var is present (Render always sets it).
+# On Replit the bot workflow has no PORT, so this is skipped there.
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, *args):
+        pass  # silence per-request access logs
+
+
+def _start_health_server(port: int) -> None:
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    log.info("Health server listening on port %d", port)
+    server.serve_forever()
+
+
 # ─── Bot setup ────────────────────────────────────────────────
 bot = Client(
     "dark_decryptor_bot",
@@ -461,14 +505,27 @@ async def callback_check_join(client: Client, callback_query: CallbackQuery):
 
 if __name__ == "__main__":
     log.info("🤖 Dark Tunnel Decryptor Bot starting...")
+
+    # Start health server when deployed on Render (PORT is set by Render automatically)
+    _render_port = os.environ.get("PORT")
+    if _render_port:
+        threading.Thread(
+            target=_start_health_server, args=(int(_render_port),), daemon=True
+        ).start()
+
+    # Self-pinger: keeps Replit awake by pinging its own URL every 4 min.
+    # Starts immediately in background — works even if UptimeRobot is blocked.
+    threading.Thread(target=_self_pinger, daemon=True).start()
+
     backoff = 5  # seconds between restart attempts
     while True:
-        crashed = False
         try:
             bot.run()
-            # bot.run() returned cleanly (graceful stop) — do not restart
-            log.info("Bot stopped cleanly. Exiting.")
-            break
+            # bot.run() can return cleanly when Telegram drops the connection
+            # gracefully (network timeout, server-side restart, etc.).
+            # We must always reconnect — only a KeyboardInterrupt should stop us.
+            log.warning("bot.run() exited without error — Telegram dropped connection. "
+                        "Restarting in %ds…", backoff)
         except FloodWait as e:
             wait = e.value + 5
             log.warning("FloodWait: sleeping %ds before restart", wait)
@@ -480,9 +537,6 @@ if __name__ == "__main__":
             break
         except Exception as e:
             log.error("Bot crashed: %s — restarting in %ds", e, backoff, exc_info=True)
-            crashed = True
-        if not crashed:
-            break
         time.sleep(backoff)
         backoff = min(backoff * 2, 120)  # cap at 2 minutes
-        log.info("Restarting bot… (next backoff: %ds)", backoff)
+        log.info("Reconnecting… (backoff now %ds)", backoff)
