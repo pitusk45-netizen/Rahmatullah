@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: dark-tunnel-bot
     runtime: python
     plan: free
@@ -7,8 +7,8 @@ services:
     startCommand: python bot.py
     envVars:
       - key: API_ID
-        value: "34808897"
+        sync: false
       - key: API_HASH
-        sync: false          # set this in the Render dashboard
+        sync: false
       - key: BOT_TOKEN
-        sync: false          # set this in the Render dashboard
+        sync: false
