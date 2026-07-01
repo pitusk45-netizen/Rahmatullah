@@ -6,11 +6,13 @@ Channel: @minarulsensi
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import urllib.request
@@ -411,7 +413,7 @@ async def start_handler(client: Client, message: Message):
         )
     except FloodWait as e:
         log.warning("/start FloodWait %ds for user %s", e.value, getattr(message.from_user, "id", "?"))
-        time.sleep(e.value)
+        await asyncio.sleep(e.value)
     except Exception as e:
         log.error("/start handler error: %s", e, exc_info=True)
 
@@ -449,8 +451,11 @@ async def file_handler(client: Client, message: Message):
             content = f.read()
 
         result        = process_dark_config(content)
-        base_filename = re.split(r'\.dark', message.document.file_name, flags=re.IGNORECASE)[0]
-        dark_path     = f"{base_filename}_unlocked.dark"
+        # Sanitize filename: strip path separators, use basename only
+        safe_name     = os.path.basename(message.document.file_name or "config")
+        safe_name     = re.sub(r'[^\w\-.]', '_', safe_name)
+        base_filename = re.split(r'\.dark', safe_name, flags=re.IGNORECASE)[0]
+        dark_path     = os.path.join(tempfile.gettempdir(), f"{base_filename}_unlocked.dark")
 
         unlocked_json = create_unlocked_config(result)
         unlocked_text = json.dumps(unlocked_json, separators=(',', ':'))
@@ -498,7 +503,7 @@ async def callback_check_join(client: Client, callback_query: CallbackQuery):
             )
     except FloodWait as e:
         log.warning("check_join FloodWait %ds", e.value)
-        time.sleep(e.value)
+        await asyncio.sleep(e.value)
     except Exception as e:
         log.error("check_join callback error: %s", e, exc_info=True)
 
